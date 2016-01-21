@@ -1,0 +1,161 @@
+-------------------------------------------
+LINUX MODULE FOR ENCRYPTION AND DECRYPTION
+------------------------------------------
+
+--------------
+INTRODUCTION
+--------------
+
+* sys_xcrypt() system call has been implemented in LINUX 4.0.9+ of CentOS Operating system for encryption and decryption.
+* The whole program has been divided into various modules whose functionalities are described below.
+* The kernel program handles efficiently all the error conditions and makes sure no memory leak is there. 
+* xhw1.c is the user program that tests the funtionalty of the system call.The user program is well validated for all the bad input conditions.
+
+------------------------
+KERNEL MODULE DESIGN
+------------------------
+
+The kernel module is designed as follows. Each module has been descriibed with the various error handling it performs.
+
+1.)The kernel entry point from user space is [asmlinkage long xcrypt(void *arg)]:
+
+	* Receives the structure variable typecasted into (void *) and copies the arguments in kernel space. "copy_from_user" is used to make a copy of the variable.
+	   getname() function is called for copying the files which handles all the access conditions.
+	* Calls func_read_write(). Passes the input and output filenames, key and encryption/decryption flag.
+	* Return a "0" if syscall is successfully executed; otherwise returns -1 and sets errno.
+
+2.)int func_read_write()
+
+	* Opens input, output and temporary files for read and write operations.
+	* validates the following error checks on the files.Calls function check_files() for the same. Incase of failure the system call exits with
+	   appropriate error message.
+
+		1.) Input files exist or not.
+		2.) If valid pointer is not returned via filp_open()
+		3.) Input and output files are regular files or not.
+		4.) Input and output files are not symlinks or hardlinks of each other.
+		5.) Input file has read permissions and f->op->read is accessible.
+		6.) Output fies has write permissions and f->op->write is accessible.
+	
+	INPUT AND OUTPUT FILES:
+        
+		1.) Output file is created with the flag: (O_WRONLY|O_CREAT), since it is opened just for writing.
+		2.) The permissions of the Output file has been set as that of the input file(and no less than that of input file)by checking the mode of the 				    input file which has been extracted by using vfs_stat.
+		3.) Output file(if it was not originally present) will be delted in case of unsuccesful read and write operations. If file was present originally,
+		    it would remain as it is.
+		4.) Each time read/write function checks on the number of successful bytes read/written.
+		5.) Incase of a zero length input file, the output file has just the key appended in the preamble. Rest of the file is empty.
+	
+	* calls key_encrypt(),add_preamble(), check_preamble(),func_encrypt_decrypt(),unlink_files and rename_files();
+	
+3.)check_files()
+	* Return -1 if any of the checks on the files fails.
+
+4.) key_encrypt()
+ 	* Generates a hashed key using md5 technique at kernel level. This is required for security purposes. 
+	* Returns error if key is not generated.
+
+5.) add_preamble() 
+	* Adds the value of the hashed key to the output file incase of encryption. 
+	* Returns error if add operation fails.
+
+6.) Check_preamble()
+	* Checks if the key entered by the user matches with the one present in the preamble of the input file. 
+	* Returns error if the key does not match and terminates the decryption process.
+
+7.) func_encrypt_decrypt()
+	* Encrypts/decrypts data by using "aes:blockciphertechnique" on the basis of the value of the flag. It works in ctr mode and hence no padding is required.
+	* If encryption, the number of bytes read will be maximum of PAGE_SIZE.
+	* Returns error if the operation fails at any point.
+
+8.) unlink_file()
+        * unlinks the target file using vfs_unlink()
+
+9.) rename_files()
+	* renames the source file with the destination file.	
+	
+
+---------------------
+USER MODULE DESIGN
+---------------------
+
+The following checks have been handled in the user program:
+
+	* Password Check:
+		1. Passphrase should not be less than 6 characters.
+		2. Passphrase is checked for newline characters,if '\n' is present, it gets removed from the passphrase.
+
+	* Multiple error conditions that handle bad inputs such as:
+		1. One of -e or -d option has been specified.
+		2. -p has been specified along with the passphrase.
+		3. -e, -d or -p options have not been entered multiple number of times.
+		4. Both infile and outfile names are given in the output.
+
+	* Format in which input should be entered: 
+		Specify -d to decrypt
+			-e to encryt
+			-p along with password
+			-h for help
+		 and pass infile and outfile after the -d and -e flags.
+		 Make sure that you dont pass -d and -e at once!
+
+	* md5 technique for hashing:
+		1. MD5 algorithm is implemented from OpenSSL library. It will return the hashed value of passphrase.
+		2. Use openssl/md5 header file.
+
+	* perror() is used to display the corresponding error from the kernel.
+
+
+
+--------------------------
+STRUCTURE FOR ARGUMENTS
+--------------------------
+
+This structure is present in the sheader.h file which is included both in the user and kernel program.
+
+		struct fval
+		{
+   			const char *infile;
+   			const char *outfile;
+   			unsigned char *keybuf;
+   			int flag;
+		};
+
+	* infile stores the name of the input file
+	* outfile stores the name of the output file
+	* keybuf stores the key.
+	* Flag stores encryption/decryption flag.
+
+------------------
+MINIMAL KERNEL
+-----------------
+
+The size of the kernel has been optimized and the number of modules have been reduced to 700 which helps in easy compilation.
+Modules such as bluetooth etc have been deselected to minimize kernel size.
+
+
+-------------
+REFERENCES
+------------
+
+*Crypto API Code reference: http://www.chronox.de/crypto-API/API-crypto-blkcipher-setkey.html
+*Linux source code reference: http://lxr.free-electrons.com/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
